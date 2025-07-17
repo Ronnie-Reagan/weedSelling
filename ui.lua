@@ -98,6 +98,18 @@ function ui.addButton(state, x, y, width, height, text, onClick)
     })
 end
 
+function ui.clearButtons(state)
+    if ui.states[state] then
+        ui.states[state].buttons = {}
+    end
+end
+
+function ui.updateButtonText(state, index, text)
+    if ui.states[state] and ui.states[state].buttons[index] then
+        ui.states[state].buttons[index].text = text
+    end
+end
+
 local function isMouseOver(mouseX, mouseY, btn)
     return mouseX >= btn.x and mouseX <= btn.x + btn.width and mouseY >= btn.y and mouseY <= btn.y + btn.height
 end
