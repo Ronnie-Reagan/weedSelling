@@ -367,6 +367,29 @@ local function updateEmployeesDaily()
     end
 end
 
+local function payMonthlyCosts()
+    local home = getCurrentHome()
+    if not home then
+        return
+    end
+
+    player.rentOwed = (player.rentOwed or 0) + home.monthlyCost
+    local payment = 0
+    if player.wallet > 0 then
+        payment = math.min(player.wallet, player.rentOwed)
+        player.wallet = player.wallet - payment
+        player.rentOwed = player.rentOwed - payment
+    end
+
+    table.insert(history,
+        string.format("Paid $%d toward rent for %s (Owed: $%d)",
+        payment, home.screenName, player.rentOwed))
+
+    if player.rentOwed > 0 then
+        showAlert("Rent overdue! Owed $" .. player.rentOwed)
+    end
+end
+
 function progressTime(dtt)
     second = second + (1 * (dtt * timeScale))
     if second >= 60 then
@@ -446,27 +469,6 @@ function buyHome(internalName)
     alertMessage = string.format("Purchase Complete, open positions: %d", selectedHome.possibleEmployees)
 end
 
-local function payMonthlyCosts()
-    local home = getCurrentHome()
-    if not home then
-        return
-    end
-
-    player.rentOwed = (player.rentOwed or 0) + home.monthlyCost
-    local payment = 0
-    if player.wallet > 0 then
-        payment = math.min(player.wallet, player.rentOwed)
-        player.wallet = player.wallet - payment
-        player.rentOwed = player.rentOwed - payment
-    end
-
-    table.insert(history, string.format("Paid $%d toward rent for %s (Owed: $%d)",
-        payment, home.screenName, player.rentOwed))
-
-    if player.rentOwed > 0 then
-        showAlert("Rent overdue! Owed $" .. player.rentOwed)
-    end
-end
 
 local function setupHomesUI()
     ui.states["homes"] = {
