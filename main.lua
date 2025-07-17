@@ -20,8 +20,22 @@ local homes = {
         screenName = "Trailer",
         internalName = "trailer1",
         upfrontCost = 4899, -- dollars
-        monthlycost = 2410, -- dollars
-        possbileEmployees = 1 -- the cool friend
+        monthlyCost = 2410, -- dollars
+        possibleEmployees = 1 -- the cool friend
+    },
+    [3] = {
+        screenName = "Apartment",
+        internalName = "apartment1",
+        upfrontCost = 15000,
+        monthlyCost = 1300,
+        possibleEmployees = 2
+    },
+    [4] = {
+        screenName = "Townhouse",
+        internalName = "townhouse1",
+        upfrontCost = 35000,
+        monthlyCost = 2500,
+        possibleEmployees = 3
     }
 }
 
@@ -307,6 +321,7 @@ function progressTime(dtt)
     if week >= 4 then
         week = 0;
         month = month + 1
+        chargeMonthlyCost()
     end
     if month >= 12 then
         month = 0;
@@ -340,24 +355,49 @@ function buyHome(internalName)
             selectedHome = home
         end
     end
-    if selectedHome == nil then return error("failed to find the home in the list", 2) end
+    if selectedHome == nil then
+        return error("failed to find the home in the list", 2)
+    end
+
     local upfront = selectedHome.upfrontCost
-    if player.wallet < upfront then
-        alertMessage = string.format("INSUFFICIENT FUNDS -$%d", upfront - player.wallet)
+    if wallet < upfront then
+        alertMessage = string.format("INSUFFICIENT FUNDS -$%d", upfront - wallet)
         alertTimer = 3
         return
     end
+
     if selectedHome.possibleEmployees < currentHome.possibleEmployees then
-        if len(employees) < selectedHome.possibleEmployees then
-            alertMessage = string.format("Too many employees to downgrade, fire %d", len(employees) - selectedHome.possibleEmployees)
+        if #employees > selectedHome.possibleEmployees then
+            alertMessage = string.format(
+                "Too many employees to downgrade, fire %d",
+                #employees - selectedHome.possibleEmployees
+            )
             alertTimer = 3
             return
         end
     end
+
     player.life.house = selectedHome.internalName
-    player.wallet = player.wallet - selectedHome.upfrontCost
+    wallet = wallet - upfront
     alertTimer = 3
-    alertMessage = string.format("Purchase Complete, open positions: %d", selectedHome.possibleEmployees)
+    alertMessage = string.format(
+        "Purchase Complete, open positions: %d",
+        selectedHome.possibleEmployees
+    )
+end
+
+local function chargeMonthlyCost()
+    local home = getCurrentHome()
+    if not home then return end
+    if wallet >= home.monthlyCost then
+        wallet = wallet - home.monthlyCost
+        table.insert(history, string.format("Paid $%d for %s rent", home.monthlyCost, home.screenName))
+    else
+        wallet = wallet - home.monthlyCost
+        local owed = -wallet
+        showAlert("Could not afford rent!")
+        table.insert(history, string.format("Fell behind on %s rent by $%d", home.screenName, owed))
+    end
 end
 
 
@@ -369,6 +409,7 @@ function love.load()
         ui.setTheme("dark")
         ui.newState("menu")
         ui.newState("game")
+        ui.newState("homes")
         ui.setState("menu")
 
         -- Step 2: Build Buttons
@@ -441,6 +482,10 @@ function love.load()
             showAlert("Game saved")
         end)
 
+        ui.addButton("game", 50, 300, 200, 40, "Manage Homes", function()
+            ui.setState("homes")
+        end)
+
         -- Step 4: Sell buttons
         loadingText = "Setting up pricing buttons..."
         coroutine.yield()
@@ -487,6 +532,28 @@ function love.load()
             coroutine.yield()
 
         end
+
+        -- Step 5: Home management buttons
+        loadingText = "Creating home menu..."
+        coroutine.yield()
+        ui.addButton("homes", 50, 300, 200, 40, "Back", function()
+            ui.setState("game")
+        end)
+        local startY = 50
+        for i, home in ipairs(homes) do
+            ui.addButton(
+                "homes",
+                50,
+                startY + (i - 1) * 50,
+                300,
+                40,
+                string.format("%s - $%d (%d/mo)", home.screenName, home.upfrontCost, home.monthlyCost),
+                function()
+                    buyHome(home.internalName)
+                end
+            )
+        end
+
         loading = false
     end)
 end
@@ -574,8 +641,18 @@ function love.draw()
         return
     end
     ui.draw()
-    if gameState == "game" then
+    if ui.currentState == "homes" then
+        local home = getCurrentHome()
+        if home then
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.print("Current Home: " .. home.screenName, 400, 50)
+        end
+    elseif gameState == "game" then
         love.graphics.setColor(1, 1, 1, 1)
+        local home = getCurrentHome()
+        if home then
+            love.graphics.print("Home: " .. home.screenName .. " ($" .. home.monthlyCost .. "/mo)", 550, 30)
+        end
         love.graphics.print("Wallet: " .. formatMoney(wallet), 550, 50)
         love.graphics.print("Storage: " .. formatStash(storage), 550, 70)
         love.graphics.print(string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)), 550, 90)
@@ -590,7 +667,7 @@ function love.draw()
             love.graphics.setColor(1, 1, 1, 1)
         end
 
-        local y = 210
+        local y = 230
         love.graphics.print("History:", 550, y)
         for i = math.max(1, #history - 20), #history do
             love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
