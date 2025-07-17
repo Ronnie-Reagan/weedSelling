@@ -42,6 +42,7 @@ local homes = {
 local player = {
     wallet = 50, -- dollars
     stash = 3.5, -- grams
+    rentOwed = 0, -- backpay for rent
     life = {
         house = "basement1" -- homes[1].internalName
 
@@ -65,6 +66,17 @@ local allWorkers = {
         loyalty = {
             limit = 0.2, -- not possible to be more than 20% loyal
             current = 0.0
+        },
+        work = {
+            stash = 0, -- grams currently held
+            stashLimit = 28, -- grams they'll take at once (1 oz)
+            sellPrice = 20, -- per gram
+            paymentInterval = 7, -- days until payout
+            sellSpeed = 28 / 7, -- grams sold per day
+            arrestRisk = 0.02, -- daily chance of arrest
+            bailCost = 200,
+            daysToPay = 0,
+            pendingMoney = 0
         }
     }
 }
@@ -183,7 +195,9 @@ function saveGame()
         prices = prices,
         cart = cart,
         history = history,
-        savedTimestamp = utcTime
+        savedTimestamp = utcTime,
+        rentOwed = player.rentOwed,
+        employees = employees
     }
     local serialized = serializeTable(saveData)
     local encoded = love.data.encode("string", "base64", serialized)
@@ -272,6 +286,8 @@ function loadGame()
             prices = data.prices or prices
             cart = data.cart or cart
             history = data.history or {}
+            employees = data.employees or employees
+            player.rentOwed = data.rentOwed or 0
 
             if data.savedTimestamp then
                 loadingText = "Attempting to fetch UTC time"
@@ -300,6 +316,57 @@ function showAlert(msg)
     alertTimer = 3 -- seconds
 end
 
+local function updateEmployeesDaily()
+    for _, emp in ipairs(employees) do
+        local w = emp.work
+        if w then
+            -- restock if empty
+            if w.stash <= 0 then
+                local take = math.min(w.stashLimit, storage)
+                if take > 0 then
+                    w.stash = take
+                    storage = storage - take
+                    w.daysToPay = w.paymentInterval
+                    table.insert(history,
+                        string.format("Gave %s %s to sell", emp.name, formatStash(take)))
+                end
+            end
+
+            if w.stash > 0 then
+                -- chance of arrest
+                if math.random() < (w.arrestRisk or 0) then
+                    local bail = w.bailCost or 0
+                    if player.wallet >= bail then
+                        player.wallet = player.wallet - bail
+                        table.insert(history,
+                            string.format("Bailed out %s for %s", emp.name, formatMoney(bail)))
+                    else
+                        table.insert(history,
+                            string.format("%s arrested and you couldn't afford bail", emp.name))
+                    end
+                end
+
+                -- daily sales
+                local sold = math.min(w.sellSpeed, w.stash)
+                w.stash = w.stash - sold
+                w.pendingMoney = w.pendingMoney + sold * w.sellPrice
+                w.daysToPay = w.daysToPay - 1
+
+                if w.daysToPay <= 0 or w.stash <= 0 then
+                    local payout = w.pendingMoney * (1 - (emp.payroll.cut or 0))
+                    if payout > 0 then
+                        player.wallet = player.wallet + payout
+                        table.insert(history,
+                            string.format("%s paid you %s", emp.name, formatMoney(payout)))
+                    end
+                    w.pendingMoney = 0
+                    w.daysToPay = 0
+                end
+            end
+        end
+    end
+end
+
 function progressTime(dtt)
     second = second + (1 * (dtt * timeScale))
     if second >= 60 then
@@ -313,6 +380,7 @@ function progressTime(dtt)
     if hour == 24 then
         hour = 0
         day = day + 1
+        updateEmployeesDaily()
     end
     if day == 7 then
         day = 0
@@ -383,12 +451,20 @@ local function payMonthlyCosts()
     if not home then
         return
     end
-    if player.wallet >= home.monthlyCost then
-        player.wallet = player.wallet - home.monthlyCost
-        table.insert(history, string.format("Paid $%d rent for %s", home.monthlyCost, home.screenName))
-    else
-        table.insert(history, string.format("Could not afford rent for %s", home.screenName))
-        showAlert("Could not pay monthly rent!")
+
+    player.rentOwed = (player.rentOwed or 0) + home.monthlyCost
+    local payment = 0
+    if player.wallet > 0 then
+        payment = math.min(player.wallet, player.rentOwed)
+        player.wallet = player.wallet - payment
+        player.rentOwed = player.rentOwed - payment
+    end
+
+    table.insert(history, string.format("Paid $%d toward rent for %s (Owed: $%d)",
+        payment, home.screenName, player.rentOwed))
+
+    if player.rentOwed > 0 then
+        showAlert("Rent overdue! Owed $" .. player.rentOwed)
     end
 end
 
