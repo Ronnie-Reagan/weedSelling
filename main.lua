@@ -401,6 +401,62 @@ local function setupHomesUI()
     ui.addButton("homes", 50, 60 + (#homes) * 60, 200, 40, "Back", function()
         ui.setState("game")
     end)
+local function isEmployeeHired(worker)
+    for _, emp in ipairs(employees) do
+        if emp == worker then
+            return true
+        end
+    end
+    return false
+end
+
+function hireEmployee(index)
+    local worker = allWorkers[index]
+    if not worker then return end
+    local home = getCurrentHome()
+    if #employees >= home.possibleEmployees then
+        showAlert("No open positions available")
+        return
+    end
+    if isEmployeeHired(worker) then
+        showAlert(worker.name .. " already hired")
+        return
+    end
+    table.insert(employees, worker)
+    showAlert("Hired " .. worker.name)
+end
+
+function fireEmployee(index)
+    local worker = allWorkers[index]
+    if not worker then return end
+    for i, emp in ipairs(employees) do
+        if emp == worker then
+            table.remove(employees, i)
+            showAlert("Fired " .. worker.name)
+            return
+        end
+    end
+end
+
+function buildEmployeeUI()
+    ui.clearButtons("employees")
+    ui.addButton("employees", 20, 20, 100, 30, "Back", function()
+        ui.setState("game")
+    end)
+    local y = 70
+    for i, worker in ipairs(allWorkers) do
+        local label = (isEmployeeHired(worker) and "Fire " or "Hire ") .. worker.name
+        local idx = i
+        ui.addButton("employees", 150, y, 200, 40, label, function()
+            if isEmployeeHired(worker) then
+                fireEmployee(idx)
+            else
+                hireEmployee(idx)
+            end
+            buildEmployeeUI()
+        end)
+        y = y + 50
+    end
 end
 
 
@@ -413,6 +469,7 @@ function love.load()
         ui.newState("menu")
         ui.newState("game")
         ui.newState("homes")
+        ui.newState("employees")
         ui.setState("menu")
         setupHomesUI()
 
@@ -489,6 +546,9 @@ function love.load()
         ui.addButton("game", 50, 300, 200, 40, "Manage Homes", function()
             setupHomesUI()
             ui.setState("homes")
+        ui.addButton("game", 50, 300, 200, 40, "Manage Employees", function()
+            buildEmployeeUI()
+            ui.setState("employees")
         end)
 
         -- Step 4: Sell buttons
@@ -647,6 +707,11 @@ function love.draw()
         love.graphics.print("History:", 550, y)
         for i = math.max(1, #history - 20), #history do
             love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
+        end
+        y = y + (math.min(20, #history) + 2) * 15
+        love.graphics.print("Employees:", 550, y)
+        for i, emp in ipairs(employees) do
+            love.graphics.print(emp.name .. " (" .. emp.role .. ")", 550, y + i * 15)
         end
     end
 end
