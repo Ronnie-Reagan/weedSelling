@@ -20,8 +20,22 @@ local homes = {
         screenName = "Trailer",
         internalName = "trailer1",
         upfrontCost = 4899, -- dollars
-        monthlycost = 2410, -- dollars
-        possbileEmployees = 1 -- the cool friend
+        monthlyCost = 2410, -- dollars
+        possibleEmployees = 1 -- the cool friend
+    },
+    [3] = {
+        screenName = "Small Apartment",
+        internalName = "apartment1",
+        upfrontCost = 8000,
+        monthlyCost = 1000,
+        possibleEmployees = 2
+    },
+    [4] = {
+        screenName = "Suburban House",
+        internalName = "house1",
+        upfrontCost = 20000,
+        monthlyCost = 2500,
+        possibleEmployees = 3
     }
 }
 
@@ -307,6 +321,7 @@ function progressTime(dtt)
     if week >= 4 then
         week = 0;
         month = month + 1
+        payMonthlyCosts()
     end
     if month >= 12 then
         month = 0;
@@ -348,8 +363,8 @@ function buyHome(internalName)
         return
     end
     if selectedHome.possibleEmployees < currentHome.possibleEmployees then
-        if len(employees) < selectedHome.possibleEmployees then
-            alertMessage = string.format("Too many employees to downgrade, fire %d", len(employees) - selectedHome.possibleEmployees)
+        if #employees > selectedHome.possibleEmployees then
+            alertMessage = string.format("Too many employees to downgrade, fire %d", #employees - selectedHome.possibleEmployees)
             alertTimer = 3
             return
         end
@@ -358,6 +373,34 @@ function buyHome(internalName)
     player.wallet = player.wallet - selectedHome.upfrontCost
     alertTimer = 3
     alertMessage = string.format("Purchase Complete, open positions: %d", selectedHome.possibleEmployees)
+end
+
+local function payMonthlyCosts()
+    local home = getCurrentHome()
+    if not home then return end
+    if player.wallet >= home.monthlyCost then
+        player.wallet = player.wallet - home.monthlyCost
+        table.insert(history, string.format("Paid $%d rent for %s", home.monthlyCost, home.screenName))
+    else
+        table.insert(history, string.format("Could not afford rent for %s", home.screenName))
+        showAlert("Could not pay monthly rent!")
+    end
+end
+
+local function setupHomesUI()
+    ui.states["homes"] = {buttons = {}, toggles = {}}
+    for i, home in ipairs(homes) do
+        local label = string.format("%s - $%d upfront, $%d/mo (%d employees)%s", home.screenName, home.upfrontCost, home.monthlyCost, home.possibleEmployees, home.internalName == player.life.house and " [Current]" or "")
+        ui.addButton("homes", 50, 50 + (i - 1) * 60, 500, 50, label, function()
+            if home.internalName ~= player.life.house then
+                buyHome(home.internalName)
+                setupHomesUI()
+            end
+        end)
+    end
+    ui.addButton("homes", 50, 60 + (#homes) * 60, 200, 40, "Back", function()
+        ui.setState("game")
+    end)
 end
 
 
@@ -369,7 +412,9 @@ function love.load()
         ui.setTheme("dark")
         ui.newState("menu")
         ui.newState("game")
+        ui.newState("homes")
         ui.setState("menu")
+        setupHomesUI()
 
         -- Step 2: Build Buttons
         loadingText = "Creating menu..."
@@ -405,7 +450,7 @@ function love.load()
         end)
 
         ui.addButton("game", 50, 150, 200, 40, "Remove Oz from Cart", function()
-            cart.ounces = cart.ounces - 1
+            cart.ounces = math.max(0, cart.ounces - 1)
             cart.cost = cart.ounces * price
             cart.freeShipping = cart.cost >= 500
         end)
@@ -439,6 +484,11 @@ function love.load()
         ui.addButton("game", 50, 250, 200, 40, "Save Game", function()
             saveGame()
             showAlert("Game saved")
+        end)
+
+        ui.addButton("game", 50, 300, 200, 40, "Manage Homes", function()
+            setupHomesUI()
+            ui.setState("homes")
         end)
 
         -- Step 4: Sell buttons
@@ -583,14 +633,17 @@ function love.draw()
         love.graphics.print("Cart: " .. cart.ounces .. " oz ($" .. cart.cost .. ")", 550, 130)
         love.graphics.print("Shipping: " .. (cart.freeShipping and "Free" or "$" .. shippingFees), 550, 150)
         love.graphics.print("Express: " .. (cart.expressShipping and "Yes" or "No"), 550, 170)
-
+        local home = getCurrentHome()
+        if home then
+            love.graphics.print("Home: " .. home.screenName, 550, 190)
+        end
         if alertMessage ~= "" then
             love.graphics.setColor(1, 0.2, 0.2, 1)
-            love.graphics.print("ALERT: " .. alertMessage, 550, 190)
+            love.graphics.print("ALERT: " .. alertMessage, 550, 210)
             love.graphics.setColor(1, 1, 1, 1)
         end
 
-        local y = 210
+        local y = 230
         love.graphics.print("History:", 550, y)
         for i = math.max(1, #history - 20), #history do
             love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
