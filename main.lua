@@ -9,19 +9,33 @@ local windowWidth, windowHeight = love.window.getMode()
 
 -- new variables
 local homes = {
-    [1] = {
+    {
         screenName = "Parent's Basement",
         internalName = "basement1",
         upfrontCost = 0, -- dollars
         monthlyCost = 500, -- dollars
-        possibleEmployees = 0 -- aint nobody talk to you, loser
+        possibleEmployees = 0 -- ain't nobody talk to you, loser
     },
-    [2] = {
+    {
         screenName = "Trailer",
         internalName = "trailer1",
         upfrontCost = 4899, -- dollars
-        monthlycost = 2410, -- dollars
-        possbileEmployees = 1 -- the cool friend
+        monthlyCost = 2410, -- dollars
+        possibleEmployees = 1 -- the cool friend
+    },
+    {
+        screenName = "Apartment",
+        internalName = "apartment1",
+        upfrontCost = 12000,
+        monthlyCost = 800,
+        possibleEmployees = 2
+    },
+    {
+        screenName = "Suburban House",
+        internalName = "house1",
+        upfrontCost = 50000,
+        monthlyCost = 2000,
+        possibleEmployees = 3
     }
 }
 
@@ -68,6 +82,7 @@ local gramsPerOunce = 28
 local sellOunceFor = 150
 local timeScale = (60 * 60) -- MUST find an alternative, possibly let user define it
 local second, minute, hour, day, week, month, year = 0, 0, 0, 0, 0, 0, 0
+local lastMonth = 0
 local gameState = "menu"
 local saveFileName = "saveGame.Don"
 local loading = true
@@ -305,12 +320,17 @@ function progressTime(dtt)
         week = week + 1
     end
     if week >= 4 then
-        week = 0;
+        week = 0
         month = month + 1
     end
     if month >= 12 then
-        month = 0;
+        month = 0
         year = year + 1
+    end
+
+    if month ~= lastMonth then
+        payMonthlyCosts()
+        lastMonth = month
     end
 
     for _, orderData in ipairs(cart.orders) do
@@ -333,6 +353,19 @@ function getCurrentHome()
     return nil
 end
 
+function payMonthlyCosts()
+    local home = getCurrentHome()
+    if home and home.monthlyCost then
+        if player.wallet >= home.monthlyCost then
+            player.wallet = player.wallet - home.monthlyCost
+            table.insert(history, string.format("Paid $%d rent for %s", home.monthlyCost, home.screenName))
+        else
+            table.insert(history, string.format("Could not pay $%d rent for %s", home.monthlyCost, home.screenName))
+            showAlert("Couldn't pay rent!")
+        end
+    end
+end
+
 function buyHome(internalName)
     local currentHome, selectedHome = getCurrentHome(), nil
     for _, home in ipairs(homes) do
@@ -348,16 +381,43 @@ function buyHome(internalName)
         return
     end
     if selectedHome.possibleEmployees < currentHome.possibleEmployees then
-        if len(employees) < selectedHome.possibleEmployees then
-            alertMessage = string.format("Too many employees to downgrade, fire %d", len(employees) - selectedHome.possibleEmployees)
+        if #employees < selectedHome.possibleEmployees then
+            alertMessage = string.format("Too many employees to downgrade, fire %d", #employees - selectedHome.possibleEmployees)
             alertTimer = 3
             return
         end
     end
     player.life.house = selectedHome.internalName
     player.wallet = player.wallet - selectedHome.upfrontCost
+    lastMonth = month
     alertTimer = 3
     alertMessage = string.format("Purchase Complete, open positions: %d", selectedHome.possibleEmployees)
+    if buildHomesUI then buildHomesUI() end
+end
+
+function buildHomesUI()
+    if not ui.states["homes"] then
+        ui.newState("homes")
+    else
+        ui.states["homes"].buttons = {}
+        ui.states["homes"].toggles = {}
+    end
+    local y = 50
+    for i, home in ipairs(homes) do
+        local text
+        if home.internalName == player.life.house then
+            text = home.screenName .. " (Current)"
+        else
+            text = string.format("Buy %s - $%d up / $%d mo", home.screenName, home.upfrontCost, home.monthlyCost)
+        end
+        ui.addButton("homes", 50, y, 300, 40, text, function()
+            if home.internalName ~= player.life.house then
+                buyHome(home.internalName)
+            end
+        end)
+        y = y + 50
+    end
+    ui.addButton("homes", 50, y, 200, 40, "Back", function() ui.setState("game") end)
 end
 
 
@@ -369,7 +429,11 @@ function love.load()
         ui.setTheme("dark")
         ui.newState("menu")
         ui.newState("game")
+        ui.newState("homes")
         ui.setState("menu")
+
+        loadingSteps = 9 + #homes + 6 -- rough estimate of steps
+        buildHomesUI()
 
         -- Step 2: Build Buttons
         loadingText = "Creating menu..."
@@ -441,6 +505,11 @@ function love.load()
             showAlert("Game saved")
         end)
 
+        ui.addButton("game", 50, 300, 200, 40, "Manage Home", function()
+            buildHomesUI()
+            ui.setState("homes")
+        end)
+
         -- Step 4: Sell buttons
         loadingText = "Setting up pricing buttons..."
         coroutine.yield()
@@ -482,7 +551,7 @@ function love.load()
                 end
             end)
             loadingCurrent = loadingCurrent + 1
-            loadingPercentage = (loadingCurrent / 14) * windowWidth / 2
+            loadingPercentage = (loadingCurrent / loadingSteps) * windowWidth / 2
             loadingText = string.format("Adding sell option: %s...", def.label)
             coroutine.yield()
 
@@ -574,6 +643,18 @@ function love.draw()
         return
     end
     ui.draw()
+    if ui.currentState == "homes" then
+        love.graphics.setColor(1, 1, 1, 1)
+        local y = 50
+        love.graphics.print("Homes:", 400, y)
+        y = y + 20
+        for _, home in ipairs(homes) do
+            local status = home.internalName == player.life.house and " (Current)" or ""
+            love.graphics.print(string.format("%s%s - $%d up / $%d mo", home.screenName, status, home.upfrontCost, home.monthlyCost), 400, y)
+            y = y + 20
+        end
+    end
+
     if gameState == "game" then
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.print("Wallet: " .. formatMoney(wallet), 550, 50)
