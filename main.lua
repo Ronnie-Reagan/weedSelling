@@ -43,7 +43,7 @@ local player = {
     wallet = 50, -- dollars
     stash = 3.5, -- grams
     life = {
-        house = "basement1", -- homes[1].internalName
+        house = "basement1" -- homes[1].internalName
 
     }
 }
@@ -170,7 +170,7 @@ function saveGame()
     local utcTime = os.time(os.date("!*t")) -- UTC time
 
     local saveData = {
-        wallet = wallet,
+        wallet = player.wallet,
         storage = storage,
         price = price,
         second = second,
@@ -259,7 +259,7 @@ function loadGame()
             local chunk = loadstring("return " .. decoded)
             local data = chunk()
 
-            wallet = data.wallet or 0
+            player.wallet = data.wallet or 0
             storage = data.storage or 0
             price = data.price or 40
             second = data.second or 0
@@ -355,7 +355,9 @@ function buyHome(internalName)
             selectedHome = home
         end
     end
-    if selectedHome == nil then return error("failed to find the home in the list", 2) end
+    if selectedHome == nil then
+        return error("failed to find the home in the list", 2)
+    end
     local upfront = selectedHome.upfrontCost
     if player.wallet < upfront then
         alertMessage = string.format("INSUFFICIENT FUNDS -$%d", upfront - player.wallet)
@@ -364,7 +366,8 @@ function buyHome(internalName)
     end
     if selectedHome.possibleEmployees < currentHome.possibleEmployees then
         if #employees > selectedHome.possibleEmployees then
-            alertMessage = string.format("Too many employees to downgrade, fire %d", #employees - selectedHome.possibleEmployees)
+            alertMessage = string.format("Too many employees to downgrade, fire %d",
+                                         #employees - selectedHome.possibleEmployees)
             alertTimer = 3
             return
         end
@@ -377,7 +380,9 @@ end
 
 local function payMonthlyCosts()
     local home = getCurrentHome()
-    if not home then return end
+    if not home then
+        return
+    end
     if player.wallet >= home.monthlyCost then
         player.wallet = player.wallet - home.monthlyCost
         table.insert(history, string.format("Paid $%d rent for %s", home.monthlyCost, home.screenName))
@@ -388,9 +393,14 @@ local function payMonthlyCosts()
 end
 
 local function setupHomesUI()
-    ui.states["homes"] = {buttons = {}, toggles = {}}
+    ui.states["homes"] = {
+        buttons = {},
+        toggles = {}
+    }
     for i, home in ipairs(homes) do
-        local label = string.format("%s - $%d upfront, $%d/mo (%d employees)%s", home.screenName, home.upfrontCost, home.monthlyCost, home.possibleEmployees, home.internalName == player.life.house and " [Current]" or "")
+        local label = string.format("%s - $%d upfront, $%d/mo (%d employees)%s", home.screenName, home.upfrontCost,
+                                    home.monthlyCost, home.possibleEmployees,
+                                    home.internalName == player.life.house and " [Current]" or "")
         ui.addButton("homes", 50, 50 + (i - 1) * 60, 500, 50, label, function()
             if home.internalName ~= player.life.house then
                 buyHome(home.internalName)
@@ -401,6 +411,7 @@ local function setupHomesUI()
     ui.addButton("homes", 50, 60 + (#homes) * 60, 200, 40, "Back", function()
         ui.setState("game")
     end)
+end
 local function isEmployeeHired(worker)
     for _, emp in ipairs(employees) do
         if emp == worker then
@@ -412,7 +423,9 @@ end
 
 function hireEmployee(index)
     local worker = allWorkers[index]
-    if not worker then return end
+    if not worker then
+        return
+    end
     local home = getCurrentHome()
     if #employees >= home.possibleEmployees then
         showAlert("No open positions available")
@@ -428,7 +441,9 @@ end
 
 function fireEmployee(index)
     local worker = allWorkers[index]
-    if not worker then return end
+    if not worker then
+        return
+    end
     for i, emp in ipairs(employees) do
         if emp == worker then
             table.remove(employees, i)
@@ -458,7 +473,6 @@ function buildEmployeeUI()
         y = y + 50
     end
 end
-
 
 function love.load()
     loadingCoroutine = coroutine.create(function()
@@ -492,8 +506,8 @@ function love.load()
         coroutine.yield()
         ui.addButton("game", 50, 50, 200, 40, "Buy Pound", function()
             local cost = ouncesPerPound * price
-            if wallet >= cost then
-                wallet = wallet - cost
+            if player.wallet >= cost then
+                player.wallet = player.wallet - cost
                 storage = storage + (gramsPerOunce * ouncesPerPound)
             else
                 showAlert("Not enough funds to buy a pound")
@@ -515,8 +529,8 @@ function love.load()
         ui.addButton("game", 50, 200, 200, 40, "Place Order", function()
             if cart.ounces > 0 then
                 local cost = cart.cost + (cart.freeShipping and 0 or shippingFees)
-                if wallet >= cost then
-                    wallet = wallet - cost
+                if player.wallet >= cost then
+                    player.wallet = player.wallet - cost
                     local deliveryIn = cart.expressShipping and 4 or 7
                     table.insert(cart.orders, {
                         ounces = cart.ounces,
@@ -546,7 +560,8 @@ function love.load()
         ui.addButton("game", 50, 300, 200, 40, "Manage Homes", function()
             setupHomesUI()
             ui.setState("homes")
-        ui.addButton("game", 50, 300, 200, 40, "Manage Employees", function()
+        end)
+        ui.addButton("game", 50, 350, 200, 40, "Manage Employees", function()
             buildEmployeeUI()
             ui.setState("employees")
         end)
@@ -584,7 +599,7 @@ function love.load()
             ui.addButton("game", 300, 30 + (i - 1) * 40, 200, 30,
                          "Sell " .. def.label .. " ($" .. prices[def.key] .. ")", function()
                 if storage >= def.amount then
-                    wallet = wallet + prices[def.key]
+                    player.wallet = player.wallet + prices[def.key]
                     storage = storage - def.amount
                     table.insert(history, string.format("Sold %s for $%d", def.label, prices[def.key]))
                 else
@@ -624,20 +639,20 @@ end
 
 local readyToQuit = false
 function love.quit()
-	if not readyToQuit then
+    if not readyToQuit then
         alertTimer = 3
         alertMessage = "You Should Save Your Progress"
-		readyToQuit = true
-		return true
-	else
+        readyToQuit = true
+        return true
+    else
         alertTimer = 1
-		alertMessage = "Thanks For Playing!"
+        alertMessage = "Thanks For Playing!"
         quittingTime = 1000 -- 1000 ms
         repeat
-            quittingTime = quittingTime - (love.timer.getDelta() / 1000 --[[1000ns]])
+            quittingTime = quittingTime - (love.timer.getDelta() / 1000 --[[1000ns]] )
         until quittingTime <= 0
-		return false
-	end
+        return false
+    end
 end
 
 function formatMoney(amount)
@@ -645,7 +660,9 @@ function formatMoney(amount)
     local k
     while true do
         formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", "%1,%2")
-        if k == 0 then break end
+        if k == 0 then
+            break
+        end
     end
     return "$" .. formatted
 end
@@ -686,7 +703,7 @@ function love.draw()
     ui.draw()
     if gameState == "game" then
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.print("Wallet: " .. formatMoney(wallet), 550, 50)
+        love.graphics.print("player.wallet: " .. formatMoney(player.wallet), 550, 50)
         love.graphics.print("Storage: " .. formatStash(storage), 550, 70)
         love.graphics.print(string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)), 550, 90)
         love.graphics.print(string.format("Time: %02d:%02d:%02d", hour, minute, second), 550, 110)
