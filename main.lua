@@ -1,6 +1,7 @@
 -- ui_economy_game/main.lua
 local ui = require("ui")
-
+love.mousepressed = ui.mousePressed
+love.mousereleased = ui.mouseReleased
 -- window stuff
 local screenWidth, screenHeight = love.window.getDesktopDimensions()
 local windowWidth, windowHeight = love.window.getMode()
@@ -85,9 +86,14 @@ local employees = {} -- no employees
 
 -- start remove
 local price = 40
-local wallet = 50
-local storage = 3.5
 -- end remove
+
+
+local autoSave = {
+    active = true,
+    saveTimer = 0,
+    interval = 300 -- every five minutes
+}
 
 local ouncesPerPound = 16
 local gramsPerOunce = 28
@@ -182,8 +188,7 @@ function saveGame()
     local utcTime = os.time(os.date("!*t")) -- UTC time
 
     local saveData = {
-        wallet = player.wallet,
-        storage = storage,
+        player = player,
         price = price,
         second = second,
         minute = minute,
@@ -204,6 +209,11 @@ function saveGame()
     local success, msg = love.filesystem.write(saveFileName, encoded)
     if not success then
         print("Failed to save game: " .. tostring(msg))
+    else
+        showAlert("Game Saved")
+        if autoSave.active == true then
+            autoSave.saveTimer = love.timer.getTime()
+        end
     end
 end
 
@@ -273,8 +283,15 @@ function loadGame()
             local chunk = loadstring("return " .. decoded)
             local data = chunk()
 
-            player.wallet = data.wallet or 0
-            storage = data.storage or 0
+            player = data.player or {
+                wallet = 50, -- dollars
+                stash = 3.5, -- grams
+                rentOwed = 0, -- backpay for rent
+                life = {
+                    house = "basement1" -- homes[1].internalName
+
+                }
+            }
             price = data.price or 40
             second = data.second or 0
             minute = data.minute or 0
@@ -295,9 +312,7 @@ function loadGame()
                 local currentTimestamp = fetchCurrentUTCTime() or os.time(os.date("!*t"))
                 local elapsed = currentTimestamp - data.savedTimestamp
                 if elapsed > 0 then
-                    -- FIX: scale real time to game time
-                    local scaledGameSeconds = elapsed * timeScale
-                    updateTimeByElapsed(scaledGameSeconds)
+                    updateTimeByElapsed(elapsed) -- no time speed up for returning players
                 end
             end
 
@@ -322,13 +337,12 @@ local function updateEmployeesDaily()
         if w then
             -- restock if empty
             if w.stash <= 0 then
-                local take = math.min(w.stashLimit, storage)
+                local take = math.min(w.stashLimit, player.stash)
                 if take > 0 then
                     w.stash = take
-                    storage = storage - take
+                    player.stash = player.stash - take
                     w.daysToPay = w.paymentInterval
-                    table.insert(history,
-                        string.format("Gave %s %s to sell", emp.name, formatStash(take)))
+                    table.insert(history, string.format("Gave %s %s to sell", emp.name, formatStash(take)))
                 end
             end
 
@@ -338,11 +352,9 @@ local function updateEmployeesDaily()
                     local bail = w.bailCost or 0
                     if player.wallet >= bail then
                         player.wallet = player.wallet - bail
-                        table.insert(history,
-                            string.format("Bailed out %s for %s", emp.name, formatMoney(bail)))
+                        table.insert(history, string.format("Bailed out %s for %s", emp.name, formatMoney(bail)))
                     else
-                        table.insert(history,
-                            string.format("%s arrested and you couldn't afford bail", emp.name))
+                        table.insert(history, string.format("%s arrested and you couldn't afford bail", emp.name))
                     end
                 end
 
@@ -356,14 +368,35 @@ local function updateEmployeesDaily()
                     local payout = w.pendingMoney * (1 - (emp.payroll.cut or 0))
                     if payout > 0 then
                         player.wallet = player.wallet + payout
-                        table.insert(history,
-                            string.format("%s paid you %s", emp.name, formatMoney(payout)))
+                        table.insert(history, string.format("%s paid you %s", emp.name, formatMoney(payout)))
                     end
                     w.pendingMoney = 0
                     w.daysToPay = 0
                 end
             end
         end
+    end
+end
+
+local function payMonthlyCosts()
+    local home = getCurrentHome()
+    if not home then
+        return
+    end
+
+    player.rentOwed = (player.rentOwed or 0) + home.monthlyCost
+    local payment = 0
+    if player.wallet > 0 then
+        payment = math.min(player.wallet, player.rentOwed)
+        player.wallet = player.wallet - payment
+        player.rentOwed = player.rentOwed - payment
+    end
+
+    table.insert(history,
+                 string.format("Paid $%d toward rent for %s (Owed: $%d)", payment, home.screenName, player.rentOwed))
+
+    if player.rentOwed > 0 then
+        showAlert("Rent overdue! Owed $" .. player.rentOwed)
     end
 end
 
@@ -399,7 +432,7 @@ function progressTime(dtt)
     for _, orderData in ipairs(cart.orders) do
         if not orderData.delivered and orderData.deliveryWeek and week >= orderData.deliveryWeek and hour >=
             deliveryTime then
-            storage = storage + gramsPerOunce * orderData.ounces
+            player.stash = player.stash + gramsPerOunce * orderData.ounces
             showAlert("Received delivery of " .. orderData.ounces .. " oz")
             table.insert(history, string.format("Received %d oz on Week %d", orderData.ounces, week))
             orderData.delivered = true
@@ -443,48 +476,23 @@ function buyHome(internalName)
     player.life.house = selectedHome.internalName
     player.wallet = player.wallet - selectedHome.upfrontCost
     alertTimer = 3
-    alertMessage = string.format("Purchase Complete, open positions: %d", selectedHome.possibleEmployees)
-end
-
-local function payMonthlyCosts()
-    local home = getCurrentHome()
-    if not home then
-        return
-    end
-
-    player.rentOwed = (player.rentOwed or 0) + home.monthlyCost
-    local payment = 0
-    if player.wallet > 0 then
-        payment = math.min(player.wallet, player.rentOwed)
-        player.wallet = player.wallet - payment
-        player.rentOwed = player.rentOwed - payment
-    end
-
-    table.insert(history, string.format("Paid $%d toward rent for %s (Owed: $%d)",
-        payment, home.screenName, player.rentOwed))
-
-    if player.rentOwed > 0 then
-        showAlert("Rent overdue! Owed $" .. player.rentOwed)
-    end
+    alertMessage = string.format("Home Rented, open positions: %d", selectedHome.possibleEmployees)
 end
 
 local function setupHomesUI()
-    ui.states["homes"] = {
-        buttons = {},
-        toggles = {}
-    }
+    ui.newState("homes")
     for i, home in ipairs(homes) do
         local label = string.format("%s - $%d upfront, $%d/mo (%d employees)%s", home.screenName, home.upfrontCost,
                                     home.monthlyCost, home.possibleEmployees,
                                     home.internalName == player.life.house and " [Current]" or "")
-        ui.addButton("homes", 50, 50 + (i - 1) * 60, 500, 50, label, function()
+        ui.addButton("homes", 50, 20 + (i - 1) * 80, 475, 75, label, function()
             if home.internalName ~= player.life.house then
                 buyHome(home.internalName)
                 setupHomesUI()
             end
         end)
     end
-    ui.addButton("homes", 50, 60 + (#homes) * 60, 200, 40, "Back", function()
+    ui.addButton("homes", 50, 60 + (#homes) * 80, 200, 40, "Back", function()
         ui.setState("game")
     end)
 end
@@ -580,11 +588,16 @@ function love.load()
         -- Step 3: Game Buttons
         loadingText = "Preparing game interface..."
         coroutine.yield()
+        ui.addToggle("game", windowWidth / 2 - 180, windowHeight - 75, 80, 40, "autosave", function()
+            autoSave.active = not autoSave.active
+            print(autoSave.active == true)
+        end, {[1] = autoSave.active}
+    )
         ui.addButton("game", 50, 50, 200, 40, "Buy Pound", function()
             local cost = ouncesPerPound * price
             if player.wallet >= cost then
                 player.wallet = player.wallet - cost
-                storage = storage + (gramsPerOunce * ouncesPerPound)
+                player.stash = player.stash + (gramsPerOunce * ouncesPerPound)
             else
                 showAlert("Not enough funds to buy a pound")
             end
@@ -674,9 +687,9 @@ function love.load()
         for i, def in ipairs(sellDefs) do
             ui.addButton("game", 300, 30 + (i - 1) * 40, 200, 30,
                          "Sell " .. def.label .. " ($" .. prices[def.key] .. ")", function()
-                if storage >= def.amount then
+                if player.stash >= def.amount then
                     player.wallet = player.wallet + prices[def.key]
-                    storage = storage - def.amount
+                    player.stash = player.stash - def.amount
                     table.insert(history, string.format("Sold %s for $%d", def.label, prices[def.key]))
                 else
                     showAlert("Not enough inventory to sell " .. def.label)
@@ -710,11 +723,25 @@ function love.update(dt)
                 alertMessage = ""
             end
         end
+        if autoSave.active == true then
+            autoSave.saveTimer = autoSave.saveTimer + dt
+            if autoSave.saveTimer >= autoSave.interval then
+                saveGame()
+                autoSave.saveTimer = autoSave.saveTimer - autoSave.interval
+                alertMessage = "Auto Save Complete"
+                alertTimer = 1
+            end
+        end
     end
 end
 
 local readyToQuit = false
 function love.quit()
+
+    -- check if theres autosave and it recently saved (half the autosave interval or in the past minute if not autosaving)
+    if autoSave.active and autoSave.saveTimer < (autoSave.interval / 2) or love.timer.getTime() - autoSave.saveTimer < 60 then
+        return false
+    end
     if not readyToQuit then
         alertTimer = 3
         alertMessage = "You Should Save Your Progress"
@@ -723,10 +750,6 @@ function love.quit()
     else
         alertTimer = 1
         alertMessage = "Thanks For Playing!"
-        quittingTime = 1000 -- 1000 ms
-        repeat
-            quittingTime = quittingTime - (love.timer.getDelta() / 1000 --[[1000ns]] )
-        until quittingTime <= 0
         return false
     end
 end
@@ -779,8 +802,8 @@ function love.draw()
     ui.draw()
     if gameState == "game" then
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.print("player.wallet: " .. formatMoney(player.wallet), 550, 50)
-        love.graphics.print("Storage: " .. formatStash(storage), 550, 70)
+        love.graphics.print("Wallet: " .. formatMoney(player.wallet), 550, 50)
+        love.graphics.print("player.stash: " .. formatStash(player.stash), 550, 70)
         love.graphics.print(string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)), 550, 90)
         love.graphics.print(string.format("Time: %02d:%02d:%02d", hour, minute, second), 550, 110)
         love.graphics.print("Cart: " .. cart.ounces .. " oz ($" .. cart.cost .. ")", 550, 130)
@@ -801,7 +824,7 @@ function love.draw()
         for i = math.max(1, #history - 20), #history do
             love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
         end
-        y = y + (math.min(20, #history) + 2) * 15
+        y = 10
         love.graphics.print("Employees:", 550, y)
         for i, emp in ipairs(employees) do
             love.graphics.print(emp.name .. " (" .. emp.role .. ")", 550, y + i * 15)

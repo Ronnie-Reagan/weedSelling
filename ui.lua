@@ -34,7 +34,8 @@ end
 function ui.newState(name)
     ui.states[name] = {
         buttons = {},
-        toggles = {}
+        toggles = {},
+        labels = {}
     }
 end
 
@@ -45,7 +46,7 @@ function ui.setState(name)
     ui.currentState = name
 end
 
-function ui.addToggle(state, x, y, width, height, text, onClick, ...)
+function ui.addToggle(state, x, y, width, height, text, onClick, var, ...)
     if not ui.states[state] then
         error("State '" .. state .. "' does not exist")
     end
@@ -75,11 +76,26 @@ function ui.addToggle(state, x, y, width, height, text, onClick, ...)
         width = width,
         height = height,
         text = text,
-        onClick = onClick,
+        onChange = onClick,
         clicked = false,
-        clickTimer = 0
+        clickTimer = 0,
+        var = var
     })
 
+end
+
+function ui.addLabel(state, x, y, width, height, text, shouldHaveBackground)
+    if not ui.states[state] then
+        error("State '" .. state .. "'' does not exist.")
+    end
+    table.insert(ui.states[state].labels, {
+        x = x,
+        y = y,
+        width = width,
+        height = height,
+        text = text,
+        background = shouldHaveBackground or false
+    })
 end
 
 function ui.addButton(state, x, y, width, height, text, onClick)
@@ -98,9 +114,21 @@ function ui.addButton(state, x, y, width, height, text, onClick)
     })
 end
 
+function ui.clearLabels(state)
+    if ui.states[state] then
+        ui.states[state].labels = {}
+    end
+end
+
 function ui.clearButtons(state)
     if ui.states[state] then
         ui.states[state].buttons = {}
+    end
+end
+
+function ui.updateLabelText(state, index, text)
+    if ui.states[state] and ui.states[state].labels[index] then
+        ui.states[state].labels[index].text = text
     end
 end
 
@@ -128,7 +156,7 @@ function ui.draw()
         else
             local mouseX, mouseY = love.mouse.getPosition()
             if isMouseOver(mouseX, mouseY, button) then
-                if love.mouse.isDown(1) then
+                if button.clicked then
                     color = theme.click
                 else
                     color = theme.hover
@@ -147,21 +175,35 @@ function ui.draw()
     for _, toggle in ipairs(state.toggles) do
         local color = theme.button
         local mouseX, mouseY = love.mouse.getPosition()
-        if isMouseOver(mouseX, mouseY, toggle) then
-            if love.mouse.isDown(1) then
+            if toggle.clicked then
                 color = theme.click
             else
                 color = theme.hover
             end
-        end
 
         love.graphics.setColor(color)
         love.graphics.rectangle("fill", toggle.x, toggle.y, toggle.width, toggle.height)
 
+        if toggle.var[1] == true then
+            love.graphics.setColor(0.9, 0, 0, 0.9)
+        else
+            love.graphics.setColor(0.5, 0.5, 0.5, 0.9)
+        end
+        love.graphics.circle("fill", toggle.x + toggle.width, toggle.y + toggle.height / 2, toggle.height / 4)
         love.graphics.setColor(theme.text)
         love.graphics.printf(toggle.text, toggle.x + 5, toggle.y + toggle.height / 3, toggle.width - 10, "center")
     end
 
+    -- draw labels
+    for _, label in ipairs(state.labels) do
+        local color = theme.text
+        local backgroundColor = theme.button
+        if label.background == true then
+            love.graphics.setColor(backgroundColor)
+            love.graphics.rectangle("fill", label.x, label.y, label.width, label.height)
+        end
+        love.graphics.printf(label.text, label.x + (label.width / 2), label.y + (label.height / 2), label.width, "center")
+    end
 end
 
 function ui.update(dt)
@@ -169,21 +211,45 @@ function ui.update(dt)
     if ui.currentState == "" then
         return
     end
-    local state = ui.states[ui.currentState]
-    local mouseX, mouseY = love.mouse.getPosition()
 
+end
+
+function ui.mousePressed(x, y, btn)
+    if btn ~= 1 then return end
+    local state = ui.states[ui.currentState]
     for _, button in ipairs(state.buttons) do
-        if button.clicked then
-            button.clickTimer = button.clickTimer - dt
-            if button.clickTimer <= 0 then
-                button.clicked = false
-                button.onClick()
-            end
-        elseif isMouseOver(mouseX, mouseY, button) and love.mouse.isDown(1) and delay <= 0 then
+        if isMouseOver(x, y, button) then
             button.clicked = true
-            button.clickTimer = 0.05 -- delay to show the clicked colour before proceeding with onClick()
-            delay = 0.15
         end
+    end
+    for _, toggle in ipairs(state.toggles) do
+        if isMouseOver(x, y, toggle) then
+            toggle.clicked = true
+        end
+    end
+end
+
+
+function ui.mouseReleased(x, y, btn)
+    if btn ~= 1 then return end
+    local state = ui.states[ui.currentState]
+    for _, button in ipairs(state.buttons) do
+        if button.clicked and isMouseOver(x, y, button) then
+            button.onClick()
+            button.clicked = false
+        end
+        button.clicked = false
+    end
+    for _, toggle in ipairs(state.toggles) do
+        if isMouseOver(x, y, toggle) and toggle.clicked then
+            toggle.onChange()
+            for _, varvar in ipairs(toggle.var) do
+                varvar = not varvar
+                toggle.clicked = false
+                print(toggle.text .. "realeasd, current value after release: " .. tostring(varvar))
+            end
+        end
+        toggle.clicked = false
     end
 end
 
