@@ -398,39 +398,44 @@ end
 local function ensureHudLabels(state)
     if hudLabels[state] then return end
     hudLabels[state] = {history = {}, employees = {}}
-    ui.addLabel(state, 550, 50, 230, 15, "")
-    hudLabels[state].wallet = #ui.states[state].labels
-    ui.addLabel(state, 550, 70, 230, 15, "")
-    hudLabels[state].stash = #ui.states[state].labels
-    ui.addLabel(state, 550, 90, 230, 15, "")
-    hudLabels[state].date = #ui.states[state].labels
-    ui.addLabel(state, 550, 110, 230, 15, "")
-    hudLabels[state].time = #ui.states[state].labels
-    ui.addLabel(state, 550, 130, 230, 15, "")
-    hudLabels[state].cart = #ui.states[state].labels
-    ui.addLabel(state, 550, 150, 230, 15, "")
-    hudLabels[state].shipping = #ui.states[state].labels
-    ui.addLabel(state, 550, 170, 230, 15, "")
-    hudLabels[state].express = #ui.states[state].labels
-    ui.addLabel(state, 550, 190, 230, 15, "")
-    hudLabels[state].home = #ui.states[state].labels
-    ui.addLabel(state, 550, 210, 230, 15, "")
-    hudLabels[state].alert = #ui.states[state].labels
 
-    ui.addLabel(state, 550, 230, 230, 15, "History:")
+    local labelWidth, labelHeight = 230, 15
+    local xCenter = windowWidth / 2 - labelWidth / 2
+    local topY = 50
+    local spacingY = 20
+
+    local function addHudLabel(key, y)
+        ui.addLabel(state, xCenter, y, labelWidth, labelHeight, "")
+        hudLabels[state][key] = #ui.states[state].labels
+    end
+
+    addHudLabel("wallet", topY)
+    addHudLabel("stash", topY + spacingY)
+    addHudLabel("date", topY + spacingY * 2)
+    addHudLabel("time", topY + spacingY * 3)
+    addHudLabel("cart", topY + spacingY * 4)
+    addHudLabel("shipping", topY + spacingY * 5)
+    addHudLabel("express", topY + spacingY * 6)
+    addHudLabel("home", topY + spacingY * 7)
+    addHudLabel("alert", topY + spacingY * 8)
+
+    local historyStartY = topY + spacingY * 9
+    ui.addLabel(state, xCenter, historyStartY, labelWidth, labelHeight, "History:")
     hudLabels[state].historyHeader = #ui.states[state].labels
     for i = 1, 20 do
-        ui.addLabel(state, 550, 230 + i * 15, 230, 15, "")
+        ui.addLabel(state, xCenter, historyStartY + i * labelHeight, labelWidth, labelHeight, "")
         table.insert(hudLabels[state].history, #ui.states[state].labels)
     end
 
-    ui.addLabel(state, 550, 10, 230, 15, "Employees:")
+    local employeeStartY = 10
+    ui.addLabel(state, xCenter + 150, employeeStartY, labelWidth, labelHeight, "Employees:")
     hudLabels[state].employeesHeader = #ui.states[state].labels
     for i = 1, 10 do
-        ui.addLabel(state, 550, 10 + i * 15, 230, 15, "")
+        ui.addLabel(state, xCenter + 150, employeeStartY + i * labelHeight, labelWidth, labelHeight, "")
         table.insert(hudLabels[state].employees, #ui.states[state].labels)
     end
 end
+
 
 local function updateHudLabels()
     for state, ids in pairs(hudLabels) do
@@ -997,33 +1002,33 @@ function love.draw()
     end
     ui.draw()
     if gameState == "game" then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.print("Wallet: " .. formatMoney(player.wallet), 550, 50)
-        love.graphics.print("player.stash: " .. formatStash(player.stash), 550, 70)
-        love.graphics.print(string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)), 550, 90)
-        love.graphics.print(string.format("Time: %02d:%02d:%02d", hour, minute, second), 550, 110)
-        love.graphics.print("Cart: " .. cart.ounces .. " oz ($" .. cart.cost .. ")", 550, 130)
-        love.graphics.print("Shipping: " .. (cart.freeShipping and "Free" or "$" .. shippingFees), 550, 150)
-        love.graphics.print("Express: " .. (cart.expressShipping and "Yes" or "No"), 550, 170)
-        local home = getCurrentHome()
-        if home then
-            love.graphics.print("Home: " .. home.screenName, 550, 190)
-        end
-        if currentAlert then
-            love.graphics.setColor(1, 0.2, 0.2, 1)
-            love.graphics.print("ALERT: " .. currentAlert.msg, 550, 210)
-            love.graphics.setColor(1, 1, 1, 1)
-        end
-
-        local y = 230
-        love.graphics.print("History:", 550, y)
-        for i = math.max(1, #history - 20), #history do
-            love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
-        end
-        y = 10
-        love.graphics.print("Employees:", 550, y)
-        for i, emp in ipairs(employees) do
-            love.graphics.print(emp.name .. " (" .. emp.role .. ")", 550, y + i * 15)
-        end
+        --love.graphics.setColor(1, 1, 1, 1)
+        --love.graphics.print("Wallet: " .. formatMoney(player.wallet), 550, 50)
+        --love.graphics.print("player.stash: " .. formatStash(player.stash), 550, 70)
+        --love.graphics.print(string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)), 550, 90)
+        --love.graphics.print(string.format("Time: %02d:%02d:%02d", hour, minute, second), 550, 110)
+        --love.graphics.print("Cart: " .. cart.ounces .. " oz ($" .. cart.cost .. ")", 550, 130)
+        --love.graphics.print("Shipping: " .. (cart.freeShipping and "Free" or "$" .. shippingFees), 550, 150)
+        --love.graphics.print("Express: " .. (cart.expressShipping and "Yes" or "No"), 550, 170)
+        --local home = getCurrentHome()
+        --if home then
+        --    love.graphics.print("Home: " .. home.screenName, 550, 190)
+        --end
+        --if currentAlert then
+        --    love.graphics.setColor(1, 0.2, 0.2, 1)
+        --    love.graphics.print("ALERT: " .. currentAlert.msg, 550, 210)
+        --    love.graphics.setColor(1, 1, 1, 1)
+        --end
+--
+        --local y = 230
+        --love.graphics.print("History:", 550, y)
+        --for i = math.max(1, #history - 20), #history do
+        --    love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
+        --end
+        --y = 10
+        --love.graphics.print("Employees:", 550, y)
+        --for i, emp in ipairs(employees) do
+        --    love.graphics.print(emp.name .. " (" .. emp.role .. ")", 550, y + i * 15)
+        --end
     end
 end
