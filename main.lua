@@ -996,4 +996,34 @@ function love.draw()
         return
     end
     ui.draw()
+    if gameState == "game" then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.print("Wallet: " .. formatMoney(player.wallet), 550, 50)
+        love.graphics.print("player.stash: " .. formatStash(player.stash), 550, 70)
+        love.graphics.print(string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)), 550, 90)
+        love.graphics.print(string.format("Time: %02d:%02d:%02d", hour, minute, second), 550, 110)
+        love.graphics.print("Cart: " .. cart.ounces .. " oz ($" .. cart.cost .. ")", 550, 130)
+        love.graphics.print("Shipping: " .. (cart.freeShipping and "Free" or "$" .. shippingFees), 550, 150)
+        love.graphics.print("Express: " .. (cart.expressShipping and "Yes" or "No"), 550, 170)
+        local home = getCurrentHome()
+        if home then
+            love.graphics.print("Home: " .. home.screenName, 550, 190)
+        end
+        if currentAlert then
+            love.graphics.setColor(1, 0.2, 0.2, 1)
+            love.graphics.print("ALERT: " .. currentAlert.msg, 550, 210)
+            love.graphics.setColor(1, 1, 1, 1)
+        end
+
+        local y = 230
+        love.graphics.print("History:", 550, y)
+        for i = math.max(1, #history - 20), #history do
+            love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
+        end
+        y = 10
+        love.graphics.print("Employees:", 550, y)
+        for i, emp in ipairs(employees) do
+            love.graphics.print(emp.name .. " (" .. emp.role .. ")", 550, y + i * 15)
+        end
+    end
 end
