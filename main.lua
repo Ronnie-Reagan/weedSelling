@@ -55,7 +55,6 @@ local allWorkers = {
         name = "James", -- screen name and system name
         role = "dealer", -- internal name
         rank = "Addict", -- screen name and system name
-        -- percentage in form of decimal
         personality = {
             nice = 0.8,
             mean = 0.1,
@@ -65,17 +64,73 @@ local allWorkers = {
             cut = 0.12 -- 12% of their sales
         },
         loyalty = {
-            limit = 0.2, -- not possible to be more than 20% loyal
+            limit = 0.2,
             current = 0.0
         },
         work = {
-            stash = 0, -- grams currently held
-            stashLimit = 28, -- grams they'll take at once (1 oz)
-            sellPrice = 20, -- per gram
-            paymentInterval = 7, -- days until payout
-            sellSpeed = 28 / 7, -- grams sold per day
-            arrestRisk = 0.02, -- daily chance of arrest
+            stash = 0,
+            stashLimit = 28,
+            sellPrice = 20,
+            paymentInterval = 7,
+            sellSpeed = 28 / 7,
+            arrestRisk = 0.02,
             bailCost = 200,
+            daysToPay = 0,
+            pendingMoney = 0
+        }
+    },
+    [2] = {
+        name = "Tom",
+        role = "dealer",
+        rank = "Runner",
+        personality = {
+            nice = 0.6,
+            mean = 0.2,
+            neutral = 0.2
+        },
+        payroll = {
+            cut = 0.15
+        },
+        loyalty = {
+            limit = 0.15,
+            current = 0.0
+        },
+        work = {
+            stash = 0,
+            stashLimit = 112, -- quarter pound
+            sellPrice = 18,
+            paymentInterval = 14,
+            sellSpeed = 112 / 14,
+            arrestRisk = 0.03,
+            bailCost = 300,
+            daysToPay = 0,
+            pendingMoney = 0
+        }
+    },
+    [3] = {
+        name = "Big Mike",
+        role = "dealer",
+        rank = "Distributor",
+        personality = {
+            nice = 0.4,
+            mean = 0.4,
+            neutral = 0.2
+        },
+        payroll = {
+            cut = 0.20
+        },
+        loyalty = {
+            limit = 0.1,
+            current = 0.0
+        },
+        work = {
+            stash = 0,
+            stashLimit = 454, -- pound
+            sellPrice = 15,
+            paymentInterval = 30,
+            sellSpeed = 454 / 30,
+            arrestRisk = 0.05,
+            bailCost = 500,
             daysToPay = 0,
             pendingMoney = 0
         }
@@ -101,6 +156,7 @@ local sellOunceFor = 150
 local timeScale = (60 * 60) -- MUST find an alternative, possibly let user define it
 local second, minute, hour, day, week, month, year = 0, 0, 0, 0, 0, 0, 0
 local gameState = "menu"
+local previousState = nil
 local saveFileName = "saveGame.Don"
 local loading = true
 local loadingCoroutine = nil
@@ -134,8 +190,8 @@ local cart = {
 
 -- Inventory log
 local history = {}
-local alertMessage = ""
-local alertTimer = 0
+local alertQueue = {}
+local currentAlert = nil
 
 function table.serialize(tbl)
     local result = "{"
@@ -323,12 +379,28 @@ function loadGame()
         end
 
         loading = false
+        if ui.states["stash"] then
+            buildStashUI()
+            ui.setState("stash")
+        end
+        gameState = "game"
     end)
 end
 
 function showAlert(msg)
-    alertMessage = msg
-    alertTimer = 3 -- seconds
+    table.insert(alertQueue, {msg = msg, timer = 3})
+    if not currentAlert then
+        currentAlert = table.remove(alertQueue, 1)
+    end
+end
+
+local function updateAlerts(dt)
+    if currentAlert then
+        currentAlert.timer = currentAlert.timer - dt
+        if currentAlert.timer <= 0 then
+            currentAlert = table.remove(alertQueue, 1)
+        end
+    end
 end
 
 local function updateEmployeesDaily()
@@ -461,22 +533,19 @@ function buyHome(internalName)
     end
     local upfront = selectedHome.upfrontCost
     if player.wallet < upfront then
-        alertMessage = string.format("INSUFFICIENT FUNDS -$%d", upfront - player.wallet)
-        alertTimer = 3
+        showAlert(string.format("INSUFFICIENT FUNDS -$%d", upfront - player.wallet))
         return
     end
     if selectedHome.possibleEmployees < currentHome.possibleEmployees then
         if #employees > selectedHome.possibleEmployees then
-            alertMessage = string.format("Too many employees to downgrade, fire %d",
-                                         #employees - selectedHome.possibleEmployees)
-            alertTimer = 3
+            showAlert(string.format("Too many employees to downgrade, fire %d",
+                                    #employees - selectedHome.possibleEmployees))
             return
         end
     end
     player.life.house = selectedHome.internalName
     player.wallet = player.wallet - selectedHome.upfrontCost
-    alertTimer = 3
-    alertMessage = string.format("Home Rented, open positions: %d", selectedHome.possibleEmployees)
+    showAlert(string.format("Home Rented, open positions: %d", selectedHome.possibleEmployees))
 end
 
 local function setupHomesUI()
@@ -493,7 +562,8 @@ local function setupHomesUI()
         end)
     end
     ui.addButton("homes", 50, 60 + (#homes) * 80, 200, 40, "Back", function()
-        ui.setState("game")
+        buildStashUI()
+        ui.setState("stash")
     end)
 end
 local function isEmployeeHired(worker)
@@ -540,7 +610,8 @@ end
 function buildEmployeeUI()
     ui.clearButtons("employees")
     ui.addButton("employees", 20, 20, 100, 30, "Back", function()
-        ui.setState("game")
+        buildStashUI()
+        ui.setState("stash")
     end)
     local y = 70
     for i, worker in ipairs(allWorkers) do
@@ -558,135 +629,49 @@ function buildEmployeeUI()
     end
 end
 
-function love.load()
-    loadingCoroutine = coroutine.create(function()
-        -- Step 1: Setup UI
-        loadingText = "Preparing UI..."
-        coroutine.yield()
-        ui.setTheme("dark")
-        ui.newState("menu")
-        ui.newState("game")
-        ui.newState("homes")
-        ui.newState("employees")
-        ui.setState("menu")
+function buildStashUI()
+    ui.clearButtons("stash")
+    ui.addButton("stash", 20, 20, 150, 40, "Streets", function()
+        buildStreetsUI()
+        ui.setState("streets")
+    end)
+    ui.addButton("stash", 20, 70, 150, 40, "Shop", function()
+        buildShopUI()
+        ui.setState("shop")
+    end)
+    ui.addButton("stash", 20, 120, 150, 40, "Homes", function()
         setupHomesUI()
+        ui.setState("homes")
+    end)
+    ui.addButton("stash", 20, 170, 150, 40, "Employees", function()
+        buildEmployeeUI()
+        ui.setState("employees")
+    end)
+    ui.addButton("stash", 20, 220, 150, 40, "Pause", function()
+        enterPause()
+    end)
+    ui.addToggle("stash", 200, 220, 80, 40, "AutoSave", function()
+        autoSave.active = not autoSave.active
+    end, {autoSave.active})
+end
 
-        -- Step 2: Build Buttons
-        loadingText = "Creating menu..."
-        coroutine.yield()
-        ui.addButton("menu", 300, 200, 200, 60, "Start Game", function()
-            gameState = "game"
-            ui.setState("game")
-        end)
-
-        ui.addButton("menu", 300, 280, 200, 60, "Load Game", function()
-            loadGame()
-            gameState = "game"
-            ui.setState("game")
-        end)
-
-        -- Step 3: Game Buttons
-        loadingText = "Preparing game interface..."
-        coroutine.yield()
-        ui.addToggle("game", windowWidth / 2 - 180, windowHeight - 75, 80, 40, "autosave", function()
-            autoSave.active = not autoSave.active
-            print(autoSave.active == true)
-        end, {[1] = autoSave.active}
-    )
-        ui.addButton("game", 50, 50, 200, 40, "Buy Pound", function()
-            local cost = ouncesPerPound * price
-            if player.wallet >= cost then
-                player.wallet = player.wallet - cost
-                player.stash = player.stash + (gramsPerOunce * ouncesPerPound)
-            else
-                showAlert("Not enough funds to buy a pound")
-            end
-        end)
-
-        ui.addButton("game", 50, 100, 200, 40, "Add Oz to Cart", function()
-            cart.ounces = cart.ounces + 1
-            cart.cost = cart.ounces * price
-            cart.freeShipping = cart.cost >= 500
-        end)
-
-        ui.addButton("game", 50, 150, 200, 40, "Remove Oz from Cart", function()
-            cart.ounces = math.max(0, cart.ounces - 1)
-            cart.cost = cart.ounces * price
-            cart.freeShipping = cart.cost >= 500
-        end)
-
-        ui.addButton("game", 50, 200, 200, 40, "Place Order", function()
-            if cart.ounces > 0 then
-                local cost = cart.cost + (cart.freeShipping and 0 or shippingFees)
-                if player.wallet >= cost then
-                    player.wallet = player.wallet - cost
-                    local deliveryIn = cart.expressShipping and 4 or 7
-                    table.insert(cart.orders, {
-                        ounces = cart.ounces,
-                        cost = cost,
-                        deliveryWeek = week + math.ceil(deliveryIn / 7),
-                        delivered = false
-                    })
-                    table.insert(history, string.format("Ordered %d oz for $%d (Delivery in %d days)", cart.ounces,
-                                                        cost, deliveryIn))
-                    cart.ounces = 0
-                    cart.cost = 0
-                    cart.freeShipping = false
-                    cart.expressShipping = false
-                else
-                    showAlert("Not enough funds to place order")
-                end
-            else
-                showAlert("Cart is empty")
-            end
-        end)
-
-        ui.addButton("game", 50, 250, 200, 40, "Save Game", function()
-            saveGame()
-            showAlert("Game saved")
-        end)
-
-        ui.addButton("game", 50, 300, 200, 40, "Manage Homes", function()
-            setupHomesUI()
-            ui.setState("homes")
-        end)
-        ui.addButton("game", 50, 350, 200, 40, "Manage Employees", function()
-            buildEmployeeUI()
-            ui.setState("employees")
-        end)
-
-        -- Step 4: Sell buttons
-        loadingText = "Setting up pricing buttons..."
-        coroutine.yield()
-        local sellDefs = {{
-            label = "Gram",
-            amount = 1,
-            key = "gram"
-        }, {
-            label = "Eighth",
-            amount = gramsPerOunce / 8,
-            key = "eighth"
-        }, {
-            label = "Quarter",
-            amount = gramsPerOunce / 4,
-            key = "quarter"
-        }, {
-            label = "Half Oz",
-            amount = gramsPerOunce / 2,
-            key = "halfOunce"
-        }, {
-            label = "Ounce",
-            amount = gramsPerOunce,
-            key = "ounce"
-        }, {
-            label = "Pound",
-            amount = 454,
-            key = "pound"
-        }}
-
-        for i, def in ipairs(sellDefs) do
-            ui.addButton("game", 300, 30 + (i - 1) * 40, 200, 30,
-                         "Sell " .. def.label .. " ($" .. prices[def.key] .. ")", function()
+function buildStreetsUI()
+    ui.clearButtons("streets")
+    ui.addButton("streets", 20, 20, 100, 30, "Back", function()
+        buildStashUI()
+        ui.setState("stash")
+    end)
+    local sellDefs = {
+        {label="Gram",amount=1,key="gram"},
+        {label="Eighth",amount=gramsPerOunce/8,key="eighth"},
+        {label="Quarter",amount=gramsPerOunce/4,key="quarter"},
+        {label="Half Oz",amount=gramsPerOunce/2,key="halfOunce"},
+        {label="Ounce",amount=gramsPerOunce,key="ounce"},
+        {label="Pound",amount=454,key="pound"}
+    }
+    for i,def in ipairs(sellDefs) do
+        ui.addButton("streets", 150, 20 + (i-1)*40, 200, 30,
+            "Sell "..def.label.." ($"..prices[def.key]..")", function()
                 if player.stash >= def.amount then
                     player.wallet = player.wallet + prices[def.key]
                     player.stash = player.stash - def.amount
@@ -695,12 +680,137 @@ function love.load()
                     showAlert("Not enough inventory to sell " .. def.label)
                 end
             end)
-            loadingCurrent = loadingCurrent + 1
-            loadingPercentage = (loadingCurrent / 14) * windowWidth / 2
-            loadingText = string.format("Adding sell option: %s...", def.label)
-            coroutine.yield()
+    end
+end
 
+function buildShopUI()
+    ui.clearButtons("shop")
+    ui.addButton("shop", 20, 20, 100, 30, "Back", function()
+        buildStashUI()
+        ui.setState("stash")
+    end)
+    ui.addButton("shop", 50, 60, 200, 40, "Buy Pound", function()
+        local cost = ouncesPerPound * price
+        if player.wallet >= cost then
+            player.wallet = player.wallet - cost
+            player.stash = player.stash + (gramsPerOunce * ouncesPerPound)
+        else
+            showAlert("Not enough funds to buy a pound")
         end
+    end)
+    ui.addButton("shop", 50, 110, 200, 40, "Add Oz to Cart", function()
+        cart.ounces = cart.ounces + 1
+        cart.cost = cart.ounces * price
+        cart.freeShipping = cart.cost >= 500
+    end)
+    ui.addButton("shop", 50, 160, 200, 40, "Remove Oz from Cart", function()
+        cart.ounces = math.max(0, cart.ounces - 1)
+        cart.cost = cart.ounces * price
+        cart.freeShipping = cart.cost >= 500
+    end)
+    ui.addButton("shop", 50, 210, 200, 40, "Place Order", function()
+        if cart.ounces > 0 then
+            local cost = cart.cost + (cart.freeShipping and 0 or shippingFees)
+            if player.wallet >= cost then
+                player.wallet = player.wallet - cost
+                local deliveryIn = cart.expressShipping and 4 or 7
+                table.insert(cart.orders, {
+                    ounces = cart.ounces,
+                    cost = cost,
+                    deliveryWeek = week + math.ceil(deliveryIn / 7),
+                    delivered = false
+                })
+                table.insert(history, string.format("Ordered %d oz for $%d (Delivery in %d days)", cart.ounces, cost, deliveryIn))
+                cart.ounces = 0
+                cart.cost = 0
+                cart.freeShipping = false
+                cart.expressShipping = false
+            else
+                showAlert("Not enough funds to place order")
+            end
+        else
+            showAlert("Cart is empty")
+        end
+    end)
+end
+
+function buildPauseUI()
+    ui.clearButtons("pause")
+    ui.addButton("pause", 300, 200, 200, 40, "Resume", function()
+        ui.setState(previousState or "stash")
+    end)
+    ui.addButton("pause", 300, 250, 200, 40, "Save Game", function()
+        saveGame()
+    end)
+    ui.addButton("pause", 300, 300, 200, 40, "Main Menu", function()
+        gameState = "menu"
+        buildMenuUI()
+        ui.setState("menu")
+    end)
+end
+
+function buildMenuUI()
+    ui.clearButtons("menu")
+    ui.addButton("menu", 300, 200, 200, 60, "Start Game", function()
+        gameState = "game"
+        buildStashUI()
+        ui.setState("stash")
+    end)
+    ui.addButton("menu", 300, 280, 200, 60, "Load Game", function()
+        buildLoadUI()
+        ui.setState("load")
+    end)
+end
+
+function buildLoadUI()
+    ui.clearButtons("load")
+    ui.addButton("load", 20, 20, 100, 30, "Back", function()
+        ui.setState("menu")
+    end)
+    local items = love.filesystem.getDirectoryItems("")
+    local y = 60
+    for _, file in ipairs(items) do
+        if file:match("%.Don$") then
+            local fname = file
+            ui.addButton("load", 150, y, 200, 40, fname, function()
+                saveFileName = fname
+                loadGame()
+                gameState = "game"
+                buildStashUI()
+                ui.setState("stash")
+            end)
+            y = y + 50
+        end
+    end
+end
+
+function enterPause()
+    previousState = ui.currentState
+    buildPauseUI()
+    ui.setState("pause")
+end
+
+function love.load()
+    loadingCoroutine = coroutine.create(function()
+        loadingText = "Preparing UI..."
+        coroutine.yield()
+        ui.setTheme("dark")
+        ui.newState("menu")
+        ui.newState("stash")
+        ui.newState("streets")
+        ui.newState("shop")
+        ui.newState("homes")
+        ui.newState("employees")
+        ui.newState("pause")
+        ui.newState("load")
+        ui.setState("menu")
+        setupHomesUI()
+        buildMenuUI()
+        buildStashUI()
+        buildStreetsUI()
+        buildShopUI()
+        buildPauseUI()
+        buildLoadUI()
         loading = false
     end)
 end
@@ -717,20 +827,24 @@ function love.update(dt)
 
     if gameState == "game" then
         progressTime(dt)
-        if alertTimer > 0 then
-            alertTimer = alertTimer - dt
-            if alertTimer <= 0 then
-                alertMessage = ""
-            end
-        end
+        updateAlerts(dt)
         if autoSave.active == true then
             autoSave.saveTimer = autoSave.saveTimer + dt
             if autoSave.saveTimer >= autoSave.interval then
                 saveGame()
                 autoSave.saveTimer = autoSave.saveTimer - autoSave.interval
-                alertMessage = "Auto Save Complete"
-                alertTimer = 1
+                showAlert("Auto Save Complete")
             end
+        end
+    end
+end
+
+function love.keypressed(key)
+    if gameState == "game" and key == "escape" then
+        if ui.currentState ~= "pause" then
+            enterPause()
+        else
+            ui.setState(previousState or "stash")
         end
     end
 end
@@ -743,13 +857,11 @@ function love.quit()
         return false
     end
     if not readyToQuit then
-        alertTimer = 3
-        alertMessage = "You Should Save Your Progress"
+        showAlert("You Should Save Your Progress")
         readyToQuit = true
         return true
     else
-        alertTimer = 1
-        alertMessage = "Thanks For Playing!"
+        showAlert("Thanks For Playing!")
         return false
     end
 end
@@ -813,9 +925,9 @@ function love.draw()
         if home then
             love.graphics.print("Home: " .. home.screenName, 550, 190)
         end
-        if alertMessage ~= "" then
+        if currentAlert then
             love.graphics.setColor(1, 0.2, 0.2, 1)
-            love.graphics.print("ALERT: " .. alertMessage, 550, 210)
+            love.graphics.print("ALERT: " .. currentAlert.msg, 550, 210)
             love.graphics.setColor(1, 1, 1, 1)
         end
 
