@@ -192,6 +192,7 @@ local cart = {
 local history = {}
 local alertQueue = {}
 local currentAlert = nil
+hudLabels = {}
 
 function table.serialize(tbl)
     local result = "{"
@@ -394,6 +395,82 @@ function showAlert(msg)
     end
 end
 
+local function ensureHudLabels(state)
+    if hudLabels[state] then return end
+    hudLabels[state] = {history = {}, employees = {}}
+    ui.addLabel(state, 550, 50, 230, 15, "")
+    hudLabels[state].wallet = #ui.states[state].labels
+    ui.addLabel(state, 550, 70, 230, 15, "")
+    hudLabels[state].stash = #ui.states[state].labels
+    ui.addLabel(state, 550, 90, 230, 15, "")
+    hudLabels[state].date = #ui.states[state].labels
+    ui.addLabel(state, 550, 110, 230, 15, "")
+    hudLabels[state].time = #ui.states[state].labels
+    ui.addLabel(state, 550, 130, 230, 15, "")
+    hudLabels[state].cart = #ui.states[state].labels
+    ui.addLabel(state, 550, 150, 230, 15, "")
+    hudLabels[state].shipping = #ui.states[state].labels
+    ui.addLabel(state, 550, 170, 230, 15, "")
+    hudLabels[state].express = #ui.states[state].labels
+    ui.addLabel(state, 550, 190, 230, 15, "")
+    hudLabels[state].home = #ui.states[state].labels
+    ui.addLabel(state, 550, 210, 230, 15, "")
+    hudLabels[state].alert = #ui.states[state].labels
+
+    ui.addLabel(state, 550, 230, 230, 15, "History:")
+    hudLabels[state].historyHeader = #ui.states[state].labels
+    for i = 1, 20 do
+        ui.addLabel(state, 550, 230 + i * 15, 230, 15, "")
+        table.insert(hudLabels[state].history, #ui.states[state].labels)
+    end
+
+    ui.addLabel(state, 550, 10, 230, 15, "Employees:")
+    hudLabels[state].employeesHeader = #ui.states[state].labels
+    for i = 1, 10 do
+        ui.addLabel(state, 550, 10 + i * 15, 230, 15, "")
+        table.insert(hudLabels[state].employees, #ui.states[state].labels)
+    end
+end
+
+local function updateHudLabels()
+    for state, ids in pairs(hudLabels) do
+        ui.updateLabelText(state, ids.wallet, "Wallet: " .. formatMoney(player.wallet))
+        ui.updateLabelText(state, ids.stash, "player.stash: " .. formatStash(player.stash))
+        ui.updateLabelText(state, ids.date,
+            string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)))
+        ui.updateLabelText(state, ids.time,
+            string.format("Time: %02d:%02d:%02d", hour, minute, second))
+        ui.updateLabelText(state, ids.cart, "Cart: " .. cart.ounces .. " oz ($" .. cart.cost .. ")")
+        ui.updateLabelText(state, ids.shipping, "Shipping: " .. (cart.freeShipping and "Free" or "$" .. shippingFees))
+        ui.updateLabelText(state, ids.express, "Express: " .. (cart.expressShipping and "Yes" or "No"))
+        local home = getCurrentHome()
+        if home then
+            ui.updateLabelText(state, ids.home, "Home: " .. home.screenName)
+        else
+            ui.updateLabelText(state, ids.home, "Home: N/A")
+        end
+        if currentAlert then
+            ui.updateLabelText(state, ids.alert, "ALERT: " .. currentAlert.msg)
+        else
+            ui.updateLabelText(state, ids.alert, "")
+        end
+
+        -- history
+        local histStart = math.max(1, #history - #ids.history + 1)
+        for i = 1, #ids.history do
+            local msg = history[histStart + i - 1]
+            ui.updateLabelText(state, ids.history[i], msg or "")
+        end
+
+        -- employees
+        for i = 1, #ids.employees do
+            local emp = employees[i]
+            local text = emp and (emp.name .. " (" .. emp.role .. ")") or ""
+            ui.updateLabelText(state, ids.employees[i], text)
+        end
+    end
+end
+
 local function updateAlerts(dt)
     if currentAlert then
         currentAlert.timer = currentAlert.timer - dt
@@ -565,6 +642,7 @@ local function setupHomesUI()
         buildStashUI()
         ui.setState("stash")
     end)
+    ensureHudLabels("homes")
 end
 local function isEmployeeHired(worker)
     for _, emp in ipairs(employees) do
@@ -627,6 +705,7 @@ function buildEmployeeUI()
         end)
         y = y + 50
     end
+    ensureHudLabels("employees")
 end
 
 function buildStashUI()
@@ -653,6 +732,7 @@ function buildStashUI()
     ui.addToggle("stash", 200, 220, 80, 40, "AutoSave", function()
         autoSave.active = not autoSave.active
     end, {autoSave.active})
+    ensureHudLabels("stash")
 end
 
 function buildStreetsUI()
@@ -681,6 +761,7 @@ function buildStreetsUI()
                 end
             end)
     end
+    ensureHudLabels("streets")
 end
 
 function buildShopUI()
@@ -732,6 +813,7 @@ function buildShopUI()
             showAlert("Cart is empty")
         end
     end)
+    ensureHudLabels("shop")
 end
 
 function buildPauseUI()
@@ -747,6 +829,7 @@ function buildPauseUI()
         buildMenuUI()
         ui.setState("menu")
     end)
+    ensureHudLabels("pause")
 end
 
 function buildMenuUI()
@@ -828,6 +911,7 @@ function love.update(dt)
     if gameState == "game" then
         progressTime(dt)
         updateAlerts(dt)
+        updateHudLabels()
         if autoSave.active == true then
             autoSave.saveTimer = autoSave.saveTimer + dt
             if autoSave.saveTimer >= autoSave.interval then
@@ -912,34 +996,4 @@ function love.draw()
         return
     end
     ui.draw()
-    if gameState == "game" then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.print("Wallet: " .. formatMoney(player.wallet), 550, 50)
-        love.graphics.print("player.stash: " .. formatStash(player.stash), 550, 70)
-        love.graphics.print(string.format("Date: Year %d, Month %d, Day %d", year, month, day + (week * 7)), 550, 90)
-        love.graphics.print(string.format("Time: %02d:%02d:%02d", hour, minute, second), 550, 110)
-        love.graphics.print("Cart: " .. cart.ounces .. " oz ($" .. cart.cost .. ")", 550, 130)
-        love.graphics.print("Shipping: " .. (cart.freeShipping and "Free" or "$" .. shippingFees), 550, 150)
-        love.graphics.print("Express: " .. (cart.expressShipping and "Yes" or "No"), 550, 170)
-        local home = getCurrentHome()
-        if home then
-            love.graphics.print("Home: " .. home.screenName, 550, 190)
-        end
-        if currentAlert then
-            love.graphics.setColor(1, 0.2, 0.2, 1)
-            love.graphics.print("ALERT: " .. currentAlert.msg, 550, 210)
-            love.graphics.setColor(1, 1, 1, 1)
-        end
-
-        local y = 230
-        love.graphics.print("History:", 550, y)
-        for i = math.max(1, #history - 20), #history do
-            love.graphics.print(history[i], 550, y + (i - math.max(1, #history - 20) + 1) * 15)
-        end
-        y = 10
-        love.graphics.print("Employees:", 550, y)
-        for i, emp in ipairs(employees) do
-            love.graphics.print(emp.name .. " (" .. emp.role .. ")", 550, y + i * 15)
-        end
-    end
 end
